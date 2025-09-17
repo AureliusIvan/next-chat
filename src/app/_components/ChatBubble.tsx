@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Response } from '@/components/ai-elements/response'; 
 import { ChatMessage } from "../types";
 import {
   Dialog,
@@ -38,7 +39,14 @@ export default function ChatBubble({ message }: { message: ChatMessage }) {
               </div>
             )}
           </div>
-          <p className="mt-1">{message.content}</p>
+          <div className="mt-1">
+            <Response
+              parseIncompleteMarkdown
+              shikiTheme={["github-light", "github-dark"]}
+            >
+              {message.content}
+            </Response>
+          </div>
         </div>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
