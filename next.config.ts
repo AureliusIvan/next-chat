@@ -3,6 +3,7 @@ import withLlamaIndex from "llamaindex/next";
 
 /** @type {import('next').NextConfig} */
 const nextConfig: NextConfig = {
+  serverExternalPackages: ['shiki'], // shiki can't be bundled
   // Your existing config
   images: {
     remotePatterns: [

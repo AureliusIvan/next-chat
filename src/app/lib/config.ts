@@ -35,8 +35,8 @@ function validateConfig() {
     return configSchema.parse(env);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      console.error('Configuration validation failed:', error.errors);
-      throw new Error(`Invalid configuration: ${error.errors.map(e => e.message).join(', ')}`);
+      console.error('Configuration validation failed:', error.issues);
+      throw new Error(`Invalid configuration: ${error.issues.map(e => e.message).join(', ')}`);
     }
     throw error;
   }
