@@ -44,9 +44,31 @@ export async function POST(request: NextRequest) {
     }
 
     const agent = await initializeAgent();
+    const startTime = Date.now();
     const result = await agent.run(message);
+    const responseTime = Date.now() - startTime;
 
-    return NextResponse.json({ response: result.data });
+    // Add mock analytics data for testing
+    const enhancedResponse = {
+      ...result.data,
+      message: {
+        ...result.data.message,
+        analytics: {
+          tokenUsage: {
+            promptTokens: Math.floor(Math.random() * 1000) + 500,
+            completionTokens: Math.floor(Math.random() * 500) + 200,
+            totalTokens: Math.floor(Math.random() * 1500) + 700,
+          },
+          responseTime,
+          toolsUsed: result.data.message.role === 'assistant' ? ['greet'] : [],
+          model: 'gpt-4o-mini',
+          timestamp: new Date().toISOString(),
+          cost: parseFloat((Math.random() * 0.01).toFixed(6)), // Mock cost in USD
+        },
+      },
+    };
+
+    return NextResponse.json({ response: enhancedResponse });
   } catch (error) {
     console.error("Chat error:", error);
     return NextResponse.json(

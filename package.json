@@ -13,6 +13,7 @@
     "@llamaindex/openai": "^0.4.20",
     "@llamaindex/workflow": "^1.1.24",
     "@radix-ui/react-avatar": "^1.1.10",
+    "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-slot": "^1.2.3",
     "@radix-ui/react-tooltip": "^1.2.8",
     "ai": "^5.0.44",

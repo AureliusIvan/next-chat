@@ -35,10 +35,25 @@ export interface State {
   nextAgentName: string | null;
 }
 
+// Analytical data for chat messages
+export interface MessageAnalytics {
+  tokenUsage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+  };
+  responseTime?: number; // in milliseconds
+  toolsUsed?: string[];
+  model?: string;
+  timestamp?: string;
+  cost?: number; // estimated cost in USD
+}
+
 // Simplified message object for responses
 export interface ChatMessage {
   role: Role;
   content: string;
+  analytics?: MessageAnalytics;
 }
 
 // Main chatbot API response
