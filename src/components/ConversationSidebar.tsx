@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useConversations, useRecentConversations } from '@/hooks/useConversations'
-import { useCreateConversation, useSetActiveConversation } from '@/hooks/useConversations'
+import { useCreateConversation, useSetActiveConversation, useDeleteConversation } from '@/hooks/useConversations'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -46,6 +46,7 @@ export function ConversationSidebar({
   // Mutations
   const createConversation = useCreateConversation()
   const setActiveConversation = useSetActiveConversation()
+  const deleteConversation = useDeleteConversation()
 
   // Filter conversations based on search term
   const filteredConversations = conversations?.filter(conversation =>
@@ -100,6 +101,21 @@ export function ConversationSidebar({
   const handleCancelEdit = () => {
     setEditingId(null)
     setEditingTitle('')
+  }
+
+  const handleDeleteConversation = async (conversationId: string) => {
+    try {
+      if (activeConversationId === conversationId) {
+        await setActiveConversation.mutateAsync({
+          userId,
+          conversationId: null,
+        })
+      }
+
+      await deleteConversation.mutateAsync(conversationId)
+    } catch (error) {
+      console.error('Failed to delete conversation:', error)
+    }
   }
 
   const formatLastMessageTime = (timestamp: string | Date) => {
@@ -272,7 +288,7 @@ export function ConversationSidebar({
                         className="text-red-600"
                         onClick={(e) => {
                           e.stopPropagation()
-                          // TODO: Implement delete conversation
+                          handleDeleteConversation(conversation.id)
                         }}
                       >
                         <Trash2 className="h-4 w-4 mr-2" />
