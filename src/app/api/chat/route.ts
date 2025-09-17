@@ -1,79 +1,213 @@
-import { agent } from "@llamaindex/workflow";
-import { tool } from "llamaindex";
-import { openai } from "@llamaindex/openai";
-import { z } from "zod";
 import { NextRequest, NextResponse } from "next/server";
+import { agentManager } from "../../lib/agent-manager";
+import { withRateLimit } from "../middleware/rate-limit";
+import {
+  generateAnalyticsData,
+  logAnalytics,
+  createRequestId,
+  PerformanceTracker
+} from "../../lib/analytics";
+import { logger } from "../../lib/logger";
+import {
+  AgentError,
+  RateLimitError,
+  ConfigurationError,
+  RequestContext,
+  EnhancedChatResponse
+} from "../../types/agent";
+import { z } from "zod";
 
-// Initialize agent once (consider using a singleton pattern)
-let myAgent: any = null;
+// Request validation schema
+const chatRequestSchema = z.object({
+  message: z.string().min(1, "Message cannot be empty").max(10000, "Message too long"),
+  userId: z.string().optional(),
+  sessionId: z.string().optional(),
+});
 
-async function initializeAgent() {
-  if (myAgent) return myAgent;
+// Error response utility
+function createErrorResponse(
+  error: Error,
+  requestId: string,
+  statusCode: number = 500
+): NextResponse {
+  const isProduction = process.env.NODE_ENV === 'production';
 
-  try {
-    const greetTool = tool({
-      name: "greet",
-      description: "Greets a user with their name",
-      parameters: z.object({
-        name: z.string(),
-      }),
-      execute: ({ name }) => `Hello, ${name}! How can I help you today?`,
-    });
+  const errorResponse = {
+    error: {
+      message: isProduction ? 'An error occurred' : error.message,
+      code: error instanceof AgentError ? error.code : 'INTERNAL_ERROR',
+      requestId,
+      timestamp: new Date().toISOString(),
+    },
+    ...(isProduction ? {} : {
+      stack: error.stack,
+      name: error.name,
+    }),
+  };
 
-    myAgent = agent({
-      tools: [greetTool],
-      llm: openai({ model: "gpt-4o-mini" }),
-    });
+  logger.error('Request failed', {
+    requestId,
+    error: error.message,
+    statusCode,
+    userId: error instanceof RateLimitError ? undefined : 'unknown',
+  });
 
-    return myAgent;
-  } catch (error) {
-    console.error("Failed to initialize agent:", error);
-    throw error;
-  }
+  return NextResponse.json(errorResponse, {
+    status: statusCode,
+    headers: {
+      'X-Request-ID': requestId,
+    },
+  });
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    const { message } = await request.json();
+// Main chat handler
+async function handleChat(request: NextRequest): Promise<NextResponse> {
+  const requestId = createRequestId();
+  const tracker = new PerformanceTracker();
 
-    if (!message || typeof message !== 'string') {
+  let requestContext: RequestContext | undefined;
+
+  try {
+    // Parse and validate request
+    tracker.checkpoint('parse-start');
+    const body = await request.json();
+    const validation = chatRequestSchema.safeParse(body);
+
+    if (!validation.success) {
+      logger.warn('Invalid request body', {
+        requestId,
+        errors: validation.error.issues,
+      });
+
       return NextResponse.json(
-        { error: "Message is required and must be a string" },
-        { status: 400 }
+        {
+          error: "Invalid request",
+          details: validation.error.issues,
+          requestId,
+        },
+        {
+          status: 400,
+          headers: { 'X-Request-ID': requestId },
+        }
       );
     }
 
-    const agent = await initializeAgent();
-    const startTime = Date.now();
-    const result = await agent.run(message);
-    const responseTime = Date.now() - startTime;
+    const { message, userId, sessionId } = validation.data;
 
-    // Add mock analytics data for testing
-    const enhancedResponse = {
-      ...result.data,
-      message: {
-        ...result.data.message,
-        analytics: {
-          tokenUsage: {
-            promptTokens: Math.floor(Math.random() * 1000) + 500,
-            completionTokens: Math.floor(Math.random() * 500) + 200,
-            totalTokens: Math.floor(Math.random() * 1500) + 700,
-          },
-          responseTime,
-          toolsUsed: result.data.message.role === 'assistant' ? ['greet'] : [],
-          model: 'gpt-4o-mini',
-          timestamp: new Date().toISOString(),
-          cost: parseFloat((Math.random() * 0.01).toFixed(6)), // Mock cost in USD
-        },
-      },
+    requestContext = {
+      requestId,
+      userId,
+      sessionId,
+      ip: request.headers.get('x-forwarded-for')?.split(',')[0] || request.headers.get('x-real-ip') || 'unknown',
+      userAgent: request.headers.get('user-agent') || 'unknown',
+      timestamp: Date.now(),
     };
 
-    return NextResponse.json({ response: enhancedResponse });
-  } catch (error) {
-    console.error("Chat error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
+    logger.request('Chat request received', requestId, {
+      messageLength: message.length,
+      userId,
+      sessionId,
+    });
+
+    tracker.checkpoint('parse-end');
+
+    // Get agent instance
+    tracker.checkpoint('agent-init-start');
+    const agent = await agentManager.getAgent();
+    tracker.checkpoint('agent-init-end');
+
+    // Execute agent
+    tracker.checkpoint('agent-run-start');
+    const result = await agent.run(message);
+    tracker.checkpoint('agent-run-end');
+
+    const responseTime = tracker.getDuration('agent-run-start');
+
+    // Generate analytics
+    tracker.checkpoint('analytics-start');
+    const toolsUsed = result.data.message.role === 'assistant' && result.data.message.toolCalls ?
+      result.data.message.toolCalls.map(tc => tc.function?.name || 'unknown') :
+      [];
+
+    const analytics = generateAnalyticsData(
+      requestId,
+      message,
+      result.data.message.content,
+      responseTime,
+      toolsUsed
     );
+    tracker.checkpoint('analytics-end');
+
+    // Create enhanced response
+    const enhancedResponse: EnhancedChatResponse = {
+      response: {
+        data: result.data,
+        message: {
+          ...result.data.message,
+          analytics,
+        },
+      },
+      requestId,
+      processingTime: tracker.getDuration(),
+    };
+
+    // Log success
+    logger.response('Chat response sent', requestId, responseTime, {
+      toolsUsed: toolsUsed.length,
+      totalTokens: analytics.tokenUsage.totalTokens,
+      cost: analytics.cost,
+    });
+
+    // Log analytics
+    logAnalytics(analytics, true);
+
+    return NextResponse.json(enhancedResponse, {
+      headers: {
+        'X-Request-ID': requestId,
+        'X-Processing-Time': responseTime.toString(),
+      },
+    });
+
+  } catch (error) {
+    const totalDuration = tracker.getDuration();
+
+    if (error instanceof AgentError) {
+      return createErrorResponse(error, requestId, error.statusCode);
+    }
+
+    // Handle unexpected errors
+    const unexpectedError = new AgentError(
+      'An unexpected error occurred',
+      'UNEXPECTED_ERROR',
+      500,
+      false
+    );
+
+    logger.error('Unexpected error in chat handler', {
+      requestId,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      duration: totalDuration,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+
+    // Log failed analytics if we have enough context
+    if (requestContext) {
+      const failedAnalytics = generateAnalyticsData(
+        requestId,
+        'error', // We don't have the original message
+        'Error occurred',
+        totalDuration,
+        [],
+        'unknown'
+      );
+      logAnalytics(failedAnalytics, false);
+    }
+
+    return createErrorResponse(unexpectedError, requestId);
   }
+}
+
+// Apply rate limiting to the handler
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  return withRateLimit(request, () => handleChat(request));
 }
