@@ -22,6 +22,15 @@ const chatRequestSchema = z.object({
   message: z.string().min(1, "Message cannot be empty").max(10000, "Message too long"),
   userId: z.string().optional(),
   sessionId: z.string().optional(),
+  conversationId: z.string().optional(),
+  conversationContext: z
+    .array(
+      z.object({
+        role: z.enum(["user", "assistant", "system"]).optional().default("user"),
+        content: z.string(),
+      })
+    )
+    .optional(),
 });
 
 // Error response utility
@@ -92,7 +101,7 @@ async function handleChat(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const { message, userId, sessionId } = validation.data;
+    const { message, userId, sessionId, conversationContext } = validation.data;
 
     requestContext = {
       requestId,
@@ -116,9 +125,18 @@ async function handleChat(request: NextRequest): Promise<NextResponse> {
     const agent = await agentManager.getAgent();
     tracker.checkpoint('agent-init-end');
 
+    // Build prompt with conversation context (if provided)
+    const historyPrefix = (conversationContext || [])
+      .map((m) => `${m.role === 'assistant' ? 'Assistant' : m.role === 'system' ? 'System' : 'User'}: ${m.content}`)
+      .join('\n');
+
+    const fullPrompt = historyPrefix
+      ? `${historyPrefix}\nUser: ${message}`
+      : message;
+
     // Execute agent
     tracker.checkpoint('agent-run-start');
-    const result = await agent.run(message);
+    const result = await agent.run(fullPrompt);
     tracker.checkpoint('agent-run-end');
 
     const responseTime = tracker.getDuration('agent-run-start');
@@ -131,7 +149,7 @@ async function handleChat(request: NextRequest): Promise<NextResponse> {
 
     const analytics = generateAnalyticsData(
       requestId,
-      message,
+      message, // keep original user turn for analytics readability
       result.data.message.content,
       responseTime,
       toolsUsed
