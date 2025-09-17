@@ -113,9 +113,16 @@ export function AiInput({
   }
 
   const handleSubmit = () => {
+    // Get the current value before clearing
+    const currentValue = value.trim()
+    if (!currentValue) return
+
+    // Clear input immediately for better UX
     setValue("")
     adjustHeight(true)
-    onSubmit(value)
+
+    // Submit with the captured value
+    onSubmit(currentValue)
   }
 
   useEffect(() => {

@@ -13,30 +13,9 @@ import {
   ConversationContent,
 } from "@/components/ui/conversation"
 import { Message, MessageContent } from "@/components/ui/message"
+import { ChatMessage } from "@/app/types"
 
-const messages: {
-  id: string
-  from: "user" | "assistant"
-  content: string
-  avatar: string
-  name: string
-}[] = [
-  {
-    id: "1",
-    from: "user",
-    content: "Hello, how are you?",
-    avatar: "https://github.com/evilrabbit.png",
-    name: "Ali Imam",
-  },
-  {
-    id: "2",
-    from: "assistant",
-    content: "I am fine, thank you!",
-    avatar: "https://github.com/openai.png",
-    name: "OpenAI",
-  },
-]
-const Example = () => {
+const ChatActions = ({ messages }: { messages: ChatMessage[] }) => {
   const actions = [
     {
       icon: RefreshCcwIcon,
@@ -65,19 +44,19 @@ const Example = () => {
         <ConversationContent>
           {messages.map((message) => (
             <Message
-              className={`flex flex-col gap-2 ${message.from === "assistant" ? "items-start" : "items-end"}`}
-              from={message.from}
-              key={message.id}
+              className={`flex flex-col gap-2 ${message.role === "assistant" ? "items-start" : "items-end"}`}
+              from={message.role}
+              key={message.role}
             >
               <Image
-                src={message.avatar}
-                alt={message.name}
+                src={message.role === "assistant" ? "https://github.com/openai.png" : "https://github.com/evilrabbit.png"}
+                alt={message.role === "assistant" ? "OpenAI" : "Ali Imam"}
                 width={32}
                 height={32}
                 className="h-8 w-8 rounded-full"
               />
               <MessageContent>{message.content}</MessageContent>
-              {message.from === "assistant" && (
+              {message.role === "assistant" && (
                 <Actions className="mt-2">
                   {actions.map((action) => (
                     <Action key={action.label} label={action.label}>
@@ -94,4 +73,4 @@ const Example = () => {
   )
 }
 
-export { Example }
+export { ChatActions }
